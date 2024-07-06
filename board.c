@@ -279,65 +279,80 @@ static void AddMergeAnimation(Board *board, Cell cell, Vector2 pos) {
   da_append(&board->animation.merges, merge);
 }
 
-static int CalculateTargetColLeft(Board *board, Cell cell, int row, int col) {
+static int CalculateTargetColLeft(Board *board, Cell cell, int row, int col,
+                                  bool merge_map[BOARD_ROWS][BOARD_COLS]) {
   int target_col = col;
   for (; target_col > 0; target_col--)
     if (!IsCellEmpty(board->cells[row][target_col - 1]))
       break;
 
-  if (target_col > 0 && board->cells[row][target_col - 1] == cell)
+  if (target_col > 0 && board->cells[row][target_col - 1] == cell &&
+      !merge_map[row][target_col - 1]) {
     target_col--;
+  }
   return target_col;
 }
 
-static int CalculateTargetColRight(Board *board, Cell cell, int row, int col) {
+static int CalculateTargetColRight(Board *board, Cell cell, int row, int col,
+                                   bool merge_map[BOARD_ROWS][BOARD_COLS]) {
   int target_col = col;
   for (; target_col < BOARD_COLS - 1; target_col++)
     if (!IsCellEmpty(board->cells[row][target_col + 1]))
       break;
 
-  if (target_col < BOARD_COLS - 1 && board->cells[row][target_col + 1] == cell)
+  if (target_col < BOARD_COLS - 1 &&
+      board->cells[row][target_col + 1] == cell &&
+      !merge_map[row][target_col + 1])
     target_col++;
   return target_col;
 }
 
-static int CalculateTargetRowUp(Board *board, Cell cell, int row, int col) {
+static int CalculateTargetRowUp(Board *board, Cell cell, int row, int col,
+                                bool merge_map[BOARD_ROWS][BOARD_COLS]) {
   int target_row = row;
   for (; target_row > 0; target_row--)
     if (!IsCellEmpty(board->cells[target_row - 1][col]))
       break;
 
-  if (target_row > 0 && board->cells[target_row - 1][col] == cell)
+  if (target_row > 0 && board->cells[target_row - 1][col] == cell &&
+      !merge_map[target_row - 1][col])
     target_row--;
   return target_row;
 }
 
-static int CalculateTargetRowDown(Board *board, Cell cell, int row, int col) {
+static int CalculateTargetRowDown(Board *board, Cell cell, int row, int col,
+                                  bool merge_map[BOARD_ROWS][BOARD_COLS]) {
   int target_row = row;
   for (; target_row < BOARD_ROWS - 1; target_row++)
     if (!IsCellEmpty(board->cells[target_row + 1][col]))
       break;
 
-  if (target_row < BOARD_COLS - 1 && board->cells[target_row + 1][col] == cell)
+  if (target_row < BOARD_COLS - 1 &&
+      board->cells[target_row + 1][col] == cell &&
+      !merge_map[target_row + 1][col])
     target_row++;
   return target_row;
 }
 
 static void MoveLeft(Board *board) {
+  bool merge_map[BOARD_ROWS][BOARD_COLS] = {0};
+
   for (int row = 0; row < BOARD_ROWS; row++) {
     for (int col = 0; col < BOARD_COLS; col++) {
       Cell cell = board->cells[row][col];
       if (IsCellEmpty(cell))
         continue;
 
-      int target_col = CalculateTargetColLeft(board, cell, row, col);
+      int target_col = CalculateTargetColLeft(board, cell, row, col, merge_map);
       bool is_merge =
           col != target_col && !IsCellEmpty(board->cells[row][target_col]);
       Vector2 from_pos = GetCellPosition(row, col);
       Vector2 to_pos = GetCellPosition(row, target_col);
       AddMoveAnimation(board, cell, is_merge, from_pos, to_pos);
-      if (is_merge)
+      if (is_merge) {
         AddMergeAnimation(board, cell * 2, to_pos);
+        merge_map[row][target_col] = true;
+      }
       board->cells[row][col] = EMPTY_CELL;
       board->cells[row][target_col] = is_merge ? cell * 2 : cell;
     }
@@ -345,20 +360,25 @@ static void MoveLeft(Board *board) {
 }
 
 static void MoveRight(Board *board) {
+  bool merge_map[BOARD_ROWS][BOARD_COLS] = {0};
+
   for (int row = 0; row < BOARD_ROWS; row++) {
     for (int col = BOARD_COLS - 1; col >= 0; col--) {
       Cell cell = board->cells[row][col];
       if (IsCellEmpty(cell))
         continue;
 
-      int target_col = CalculateTargetColRight(board, cell, row, col);
+      int target_col =
+          CalculateTargetColRight(board, cell, row, col, merge_map);
       bool is_merge =
           col != target_col && !IsCellEmpty(board->cells[row][target_col]);
       Vector2 from_pos = GetCellPosition(row, col);
       Vector2 to_pos = GetCellPosition(row, target_col);
       AddMoveAnimation(board, cell, is_merge, from_pos, to_pos);
-      if (is_merge)
+      if (is_merge) {
         AddMergeAnimation(board, cell * 2, to_pos);
+        merge_map[row][target_col] = true;
+      }
       board->cells[row][col] = EMPTY_CELL;
       board->cells[row][target_col] = is_merge ? cell * 2 : cell;
     }
@@ -366,20 +386,24 @@ static void MoveRight(Board *board) {
 }
 
 static void MoveUp(Board *board) {
+  bool merge_map[BOARD_ROWS][BOARD_COLS] = {0};
+
   for (int row = 0; row < BOARD_ROWS; row++) {
     for (int col = 0; col < BOARD_COLS; col++) {
       Cell cell = board->cells[row][col];
       if (IsCellEmpty(cell))
         continue;
 
-      int target_row = CalculateTargetRowUp(board, cell, row, col);
+      int target_row = CalculateTargetRowUp(board, cell, row, col, merge_map);
       bool is_merge =
           row != target_row && !IsCellEmpty(board->cells[target_row][col]);
       Vector2 from_pos = GetCellPosition(row, col);
       Vector2 to_pos = GetCellPosition(target_row, col);
       AddMoveAnimation(board, cell, is_merge, from_pos, to_pos);
-      if (is_merge)
+      if (is_merge) {
         AddMergeAnimation(board, cell * 2, to_pos);
+        merge_map[target_row][col] = true;
+      }
       board->cells[row][col] = EMPTY_CELL;
       board->cells[target_row][col] = is_merge ? cell * 2 : cell;
     }
@@ -387,20 +411,24 @@ static void MoveUp(Board *board) {
 }
 
 static void MoveDown(Board *board) {
+  bool merge_map[BOARD_ROWS][BOARD_COLS] = {0};
+
   for (int row = BOARD_ROWS - 1; row >= 0; row--) {
     for (int col = 0; col < BOARD_COLS; col++) {
       Cell cell = board->cells[row][col];
       if (IsCellEmpty(cell))
         continue;
 
-      int target_row = CalculateTargetRowDown(board, cell, row, col);
+      int target_row = CalculateTargetRowDown(board, cell, row, col, merge_map);
       bool is_merge =
           row != target_row && !IsCellEmpty(board->cells[target_row][col]);
       Vector2 from_pos = GetCellPosition(row, col);
       Vector2 to_pos = GetCellPosition(target_row, col);
       AddMoveAnimation(board, cell, is_merge, from_pos, to_pos);
-      if (is_merge)
+      if (is_merge) {
         AddMergeAnimation(board, cell * 2, to_pos);
+        merge_map[target_row][col] = true;
+      }
       board->cells[row][col] = EMPTY_CELL;
       board->cells[target_row][col] = is_merge ? cell * 2 : cell;
     }
