@@ -15,6 +15,11 @@ static void DrawEmptyBoard(void);
 static void UpdateAnimation(Board *board);
 static void ClearAnimations(Animation *animation);
 
+float EaseIn(float x) { return x * x; }
+float Flip(float x) { return 1 - x; }
+float EaseOut(float x) { return Flip(EaseIn(Flip(x))); }
+float SmoothStep(float x) { return Lerp(EaseIn(x), EaseOut(x), x); }
+
 static Color GetCellColor(int number) {
   switch (number) {
   case 2:
@@ -113,13 +118,15 @@ static void DrawAnimationCells(Board *board) {
     for (int i = 0; i < board->animation.moves.count; i++) {
       Move move = board->animation.moves.items[i];
       Cell cell = move.number;
-      Rectangle rect = (Rectangle){
-          .height = CELL_HEIGHT,
-          .width = CELL_WIDTH,
-          .x = Lerp(move.from.x, move.to.x,
-                    board->animation.elapsed_time / MOVE_ANIMATION_DURATION),
-          .y = Lerp(move.from.y, move.to.y,
-                    board->animation.elapsed_time / MOVE_ANIMATION_DURATION)};
+      Rectangle rect =
+          (Rectangle){.height = CELL_HEIGHT,
+                      .width = CELL_WIDTH,
+                      .x = Lerp(move.from.x, move.to.x,
+                                SmoothStep(board->animation.elapsed_time /
+                                           MOVE_ANIMATION_DURATION)),
+                      .y = Lerp(move.from.y, move.to.y,
+                                SmoothStep(board->animation.elapsed_time /
+                                           MOVE_ANIMATION_DURATION))};
       DrawCell(cell, rect);
     }
   } else {
@@ -143,12 +150,14 @@ static void DrawAnimationCells(Board *board) {
       Merge merge = board->animation.merges.items[i];
 
       if (elapsed_time < SCALE_UP_DURATION) {
-        float scale = Lerp(1, 1.1, elapsed_time / SCALE_UP_DURATION);
+        float scale =
+            Lerp(1, 1.1, SmoothStep(elapsed_time / SCALE_UP_DURATION));
         Cell cell = merge.number;
         DrawCellScaled(cell, merge.in, scale);
       } else {
-        float scale = Lerp(
-            1.1, 1, (elapsed_time - SCALE_UP_DURATION) / SCALE_DOWN_DURATION);
+        float scale = Lerp(1.1, 1,
+                           SmoothStep((elapsed_time - SCALE_UP_DURATION) /
+                                      SCALE_DOWN_DURATION));
         Cell cell = merge.number;
         DrawCellScaled(cell, merge.in, scale);
       }
@@ -156,7 +165,8 @@ static void DrawAnimationCells(Board *board) {
 
     for (int i = 0; i < board->animation.appears.count; i++) {
       Appear appear = board->animation.appears.items[i];
-      float scale = Lerp(0, 1, elapsed_time / APPEAR_ANIMATION_DURATION);
+      float scale =
+          Lerp(0, 1, SmoothStep(elapsed_time / APPEAR_ANIMATION_DURATION));
       Cell cell = appear.number;
       DrawCellScaled(cell, appear.in, scale);
     }
