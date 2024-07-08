@@ -1,5 +1,5 @@
 #include "board.h"
-#include "array.h"
+#include "animation.h"
 #include <raylib.h>
 #include <raymath.h>
 #include <stdio.h>
@@ -12,13 +12,6 @@ static void MoveUp(Board *board);
 static void MoveDown(Board *board);
 static Rectangle GetCellRect(int row, int col);
 static void DrawEmptyBoard(void);
-static void UpdateAnimation(Board *board);
-static void ClearAnimations(Animation *animation);
-
-float EaseIn(float x) { return x * x; }
-float Flip(float x) { return 1 - x; }
-float EaseOut(float x) { return Flip(EaseIn(Flip(x))); }
-float SmoothStep(float x) { return Lerp(EaseIn(x), EaseOut(x), x); }
 
 static Color GetCellColor(int number) {
   switch (number) {
@@ -115,7 +108,7 @@ static void DrawCells(Board *board) {
 
 static void DrawAnimationCells(Board *board) {
   if (board->animation.elapsed_time <= MOVE_ANIMATION_DURATION) {
-    for (int i = 0; i < board->animation.moves.count; i++) {
+    for (size_t i = 0; i < board->animation.moves.count; i++) {
       Move move = board->animation.moves.items[i];
       Cell cell = move.number;
       Rectangle rect =
@@ -132,7 +125,7 @@ static void DrawAnimationCells(Board *board) {
   } else {
     float elapsed_time =
         board->animation.elapsed_time - MOVE_ANIMATION_DURATION;
-    for (int i = 0; i < board->animation.moves.count; i++) {
+    for (size_t i = 0; i < board->animation.moves.count; i++) {
       Move move = board->animation.moves.items[i];
       if (!move.is_merge) {
         Rectangle rect = (Rectangle){
@@ -146,7 +139,7 @@ static void DrawAnimationCells(Board *board) {
       }
     }
 
-    for (int i = 0; i < board->animation.merges.count; i++) {
+    for (size_t i = 0; i < board->animation.merges.count; i++) {
       Merge merge = board->animation.merges.items[i];
 
       if (elapsed_time < SCALE_UP_DURATION) {
@@ -163,7 +156,7 @@ static void DrawAnimationCells(Board *board) {
       }
     }
 
-    for (int i = 0; i < board->animation.appears.count; i++) {
+    for (size_t i = 0; i < board->animation.appears.count; i++) {
       Appear appear = board->animation.appears.items[i];
       float scale =
           Lerp(0, 1, SmoothStep(elapsed_time / APPEAR_ANIMATION_DURATION));
@@ -175,7 +168,7 @@ static void DrawAnimationCells(Board *board) {
 
 void DrawBoard(Board *board) {
   DrawEmptyBoard();
-  if (board->animation.is_animation_playing) {
+  if (IsAnimationPlaying(&board->animation)) {
     DrawAnimationCells(board);
   } else {
     DrawCells(board);
@@ -209,9 +202,8 @@ void AddRandomCell(Board *board) {
   int r = rand() % empty_cells_count;
   Point choosen = empty_cells[r];
   board->cells[choosen.y][choosen.x] = 2;
-  Rectangle rect = GetCellRect(choosen.y, choosen.x);
-  Appear appear = {.number = 2, .in = {.x = rect.x, .y = rect.y}};
-  da_append(&board->animation.appears, appear);
+  Vector2 pos = GetCellPosition(choosen.y, choosen.x);
+  AddAppearAnimation(&board->animation, 2, pos);
 }
 
 static bool AnyMoveHappen(Board *board) {
@@ -257,36 +249,9 @@ void UpdateBoard(Board *board) {
     }
   }
 
-  if (board->animation.is_animation_playing) {
-    UpdateAnimation(board);
+  if (IsAnimationPlaying(&board->animation)) {
+    UpdateAnimation(&board->animation);
   }
-}
-
-static void UpdateAnimation(Board *board) {
-  float dt = GetFrameTime();
-  board->animation.elapsed_time += dt;
-  if (board->animation.elapsed_time > ANIMATION_DURATION) {
-    board->animation.is_animation_playing = false;
-  }
-}
-
-static void ClearAnimations(Animation *animation) {
-  animation->elapsed_time = 0;
-  animation->moves.count = 0;
-  animation->appears.count = 0;
-  animation->merges.count = 0;
-}
-
-static void AddMoveAnimation(Board *board, Cell cell, bool is_merge,
-                             Vector2 from_pos, Vector2 to_pos) {
-  Move move = (Move){
-      .from = from_pos, .to = to_pos, .is_merge = is_merge, .number = cell};
-  da_append(&board->animation.moves, move);
-}
-
-static void AddMergeAnimation(Board *board, Cell cell, Vector2 pos) {
-  Merge merge = {.number = cell, .in = pos};
-  da_append(&board->animation.merges, merge);
 }
 
 static int CalculateTargetColLeft(Board *board, Cell cell, int row, int col,
@@ -358,9 +323,9 @@ static void MoveLeft(Board *board) {
           col != target_col && !IsCellEmpty(board->cells[row][target_col]);
       Vector2 from_pos = GetCellPosition(row, col);
       Vector2 to_pos = GetCellPosition(row, target_col);
-      AddMoveAnimation(board, cell, is_merge, from_pos, to_pos);
+      AddMoveAnimation(&board->animation, cell, is_merge, from_pos, to_pos);
       if (is_merge) {
-        AddMergeAnimation(board, cell * 2, to_pos);
+        AddMergeAnimation(&board->animation, cell * 2, to_pos);
         merge_map[row][target_col] = true;
       }
       board->cells[row][col] = EMPTY_CELL;
@@ -384,9 +349,9 @@ static void MoveRight(Board *board) {
           col != target_col && !IsCellEmpty(board->cells[row][target_col]);
       Vector2 from_pos = GetCellPosition(row, col);
       Vector2 to_pos = GetCellPosition(row, target_col);
-      AddMoveAnimation(board, cell, is_merge, from_pos, to_pos);
+      AddMoveAnimation(&board->animation, cell, is_merge, from_pos, to_pos);
       if (is_merge) {
-        AddMergeAnimation(board, cell * 2, to_pos);
+        AddMergeAnimation(&board->animation, cell * 2, to_pos);
         merge_map[row][target_col] = true;
       }
       board->cells[row][col] = EMPTY_CELL;
@@ -409,9 +374,9 @@ static void MoveUp(Board *board) {
           row != target_row && !IsCellEmpty(board->cells[target_row][col]);
       Vector2 from_pos = GetCellPosition(row, col);
       Vector2 to_pos = GetCellPosition(target_row, col);
-      AddMoveAnimation(board, cell, is_merge, from_pos, to_pos);
+      AddMoveAnimation(&board->animation, cell, is_merge, from_pos, to_pos);
       if (is_merge) {
-        AddMergeAnimation(board, cell * 2, to_pos);
+        AddMergeAnimation(&board->animation, cell * 2, to_pos);
         merge_map[target_row][col] = true;
       }
       board->cells[row][col] = EMPTY_CELL;
@@ -434,9 +399,9 @@ static void MoveDown(Board *board) {
           row != target_row && !IsCellEmpty(board->cells[target_row][col]);
       Vector2 from_pos = GetCellPosition(row, col);
       Vector2 to_pos = GetCellPosition(target_row, col);
-      AddMoveAnimation(board, cell, is_merge, from_pos, to_pos);
+      AddMoveAnimation(&board->animation, cell, is_merge, from_pos, to_pos);
       if (is_merge) {
-        AddMergeAnimation(board, cell * 2, to_pos);
+        AddMergeAnimation(&board->animation, cell * 2, to_pos);
         merge_map[target_row][col] = true;
       }
       board->cells[row][col] = EMPTY_CELL;
