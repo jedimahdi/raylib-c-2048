@@ -1,37 +1,60 @@
-#ifndef BOARD_H
-#define BOARD_H
+#ifndef BOARD_H_
+#define BOARD_H_
 
-#include "animation.h"
-#include <stdbool.h>
-
-#define EMPTY_CELL 0
+#define BOARD_SIZE 4
+#define MAX_TILES (BOARD_SIZE * BOARD_SIZE)
+#define MAX_MERGES ((int)(MAX_TILES / 2))
+#define EMPTY_TILE_VALUE 0
 #define BOARD_WIDTH 800.0
 #define BOARD_HEIGHT 800.0
-#define BOARD_ROWS 4
-#define BOARD_COLS 4
-#define CELL_GAP_SIZE 22
-#define CELL_WIDTH                                                             \
-  ((BOARD_WIDTH - (CELL_GAP_SIZE * (BOARD_COLS + 1))) / BOARD_COLS)
-#define CELL_HEIGHT                                                            \
-  ((BOARD_HEIGHT - (CELL_GAP_SIZE * (BOARD_ROWS + 1))) / BOARD_ROWS)
+#define TILE_GAP_SIZE 22
+#define TILE_WIDTH                                                             \
+  ((BOARD_WIDTH - (TILE_GAP_SIZE * (BOARD_SIZE + 1))) / BOARD_SIZE)
+#define TILE_HEIGHT                                                            \
+  ((BOARD_HEIGHT - (TILE_GAP_SIZE * (BOARD_SIZE + 1))) / BOARD_SIZE)
+
+#include "linear.h"
+#include <stdbool.h>
+
+typedef enum {
+  TILE_IDLE,
+  TILE_MOVE,
+  TILE_MERGE,
+  TILE_APPEAR,
+} TileType;
 
 typedef struct {
-  int x;
-  int y;
-} Point;
-
-typedef enum { CELL_EMPTY, CELL_FULL } CellType;
-
-typedef int Cell;
-
+  TileType type;
+  V2f pos;
+  V2f from_pos;
+  V2f to_pos;
+  int number;
+  int new_number;
+  float scale;
+} Tile;
 
 typedef struct {
-  Cell cells[BOARD_ROWS][BOARD_COLS];
-  Animation animation;
+  int tiles_map[BOARD_SIZE][BOARD_SIZE];
+  Tile tiles[MAX_TILES + MAX_MERGES];
+  int tiles_count;
 } Board;
 
-void InitBoard(Board *board);
-void UpdateBoard(Board *board);
-void DrawBoard(Board *board);
+bool is_tile_inbounds(V2i tile);
+V2i get_starting_tile(V2i direction);
+bool get_next_tile(V2i *tile, V2i direction);
 
-#endif // BOARD_H
+Tile make_idle_tile(int value, V2f pos);
+Tile make_appear_tile(int value, V2f pos);
+Tile make_move_tile(int value, V2f from_pos, V2f to_pos);
+Tile make_merge_tile(int value, int new_value, V2f from_pos, V2f to_pos);
+
+V2f get_tile_position(V2i tile);
+int get_tile_value(Board *board, V2i tile);
+void set_tile_value(Board *board, V2i tile, int value);
+
+bool add_random_tile(Board *board);
+void move_tiles(Board *board, V2i direction);
+
+void draw_tile(Tile tile);
+
+#endif // BOARD_H_

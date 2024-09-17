@@ -1,19 +1,160 @@
 #include "board.h"
-#include "animation.h"
-#include <raylib.h>
-#include <raymath.h>
+#include "linear.h"
+#include "raylib.h"
+#include "raymath.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
-static void MoveLeft(Board *board);
-static void MoveRight(Board *board);
-static void MoveUp(Board *board);
-static void MoveDown(Board *board);
-static Rectangle GetCellRect(int row, int col);
-static void DrawEmptyBoard(void);
+bool is_tile_inbounds(V2i tile) {
+  return tile.x >= 0 && tile.y >= 0 && tile.x < BOARD_SIZE &&
+         tile.y < BOARD_SIZE;
+}
 
-static Color GetCellColor(int number) {
+V2i get_starting_tile(V2i direction) {
+  return v2i_clamp(v2i_scale(direction, BOARD_SIZE), v2i(0, 0),
+                   v2i(BOARD_SIZE - 1, BOARD_SIZE - 1));
+}
+
+bool get_next_tile(V2i *tile, V2i direction) {
+  V2i reversed_direction = reverse_direction(direction);
+  V2i curr_tile = *tile;
+  V2i next = v2i_add(curr_tile, reversed_direction);
+  if (is_tile_inbounds(next)) {
+    *tile = next;
+    return true;
+  }
+
+  next = v2i_sub(v2i_add(curr_tile, v2i(abs(reversed_direction.y),
+                                        abs(reversed_direction.x))),
+                 v2i_scale(reversed_direction, BOARD_SIZE - 1));
+  if (is_tile_inbounds(next)) {
+    *tile = next;
+    return true;
+  }
+  return false;
+}
+
+Tile make_idle_tile(int value, V2f pos) {
+  return (Tile){.type = TILE_IDLE,
+                .scale = 1,
+                .new_number = value,
+                .number = value,
+                .from_pos = pos,
+                .to_pos = pos,
+                .pos = pos};
+}
+Tile make_appear_tile(int value, V2f pos) {
+  return (Tile){.type = TILE_APPEAR,
+                .number = value,
+                .new_number = value,
+                .scale = 0,
+                .from_pos = pos,
+                .to_pos = pos,
+                .pos = pos};
+}
+Tile make_move_tile(int value, V2f from_pos, V2f to_pos) {
+  return (Tile){.type = TILE_MOVE,
+                .scale = 1,
+                .new_number = value,
+                .number = value,
+                .from_pos = from_pos,
+                .to_pos = to_pos,
+                .pos = from_pos};
+}
+Tile make_merge_tile(int value, int new_value, V2f from_pos, V2f to_pos) {
+  return (Tile){.type = TILE_MERGE,
+                .scale = 1,
+                .new_number = new_value,
+                .number = value,
+                .from_pos = from_pos,
+                .to_pos = to_pos,
+                .pos = from_pos};
+}
+
+int get_tile_value(Board *board, V2i tile) {
+  return board->tiles_map[tile.y][tile.x];
+}
+
+void set_tile_value(Board *board, V2i tile, int value) {
+  board->tiles_map[tile.y][tile.x] = value;
+}
+
+V2f get_tile_position(V2i tile) {
+  int row = tile.y;
+  int col = tile.x;
+  return (V2f){.x = col * TILE_WIDTH + ((col + 1) * TILE_GAP_SIZE),
+               .y = row * TILE_HEIGHT + ((row + 1) * TILE_GAP_SIZE)};
+}
+
+bool add_random_tile(Board *board) {
+  V2i empty_tiles[MAX_TILES];
+  int empty_tiles_count = 0;
+
+  V2i iteration_direction = DIRECTION_RIGHT;
+  V2i tile = get_starting_tile(iteration_direction);
+  do {
+    if (get_tile_value(board, tile) == EMPTY_TILE_VALUE) {
+      empty_tiles[empty_tiles_count++] = tile;
+    }
+  } while (get_next_tile(&tile, iteration_direction));
+
+  if (empty_tiles_count == 0)
+    return false;
+
+  int random_index = GetRandomValue(0, empty_tiles_count - 1);
+  V2i choosen_tile = empty_tiles[random_index];
+  set_tile_value(board, choosen_tile, 2);
+  V2f pos = get_tile_position(choosen_tile);
+  board->tiles[board->tiles_count++] = make_appear_tile(2, pos);
+  return true;
+}
+
+void move_tiles(Board *board, V2i direction) {
+  bool merge_map[BOARD_SIZE][BOARD_SIZE] = {0};
+  V2i tile = get_starting_tile(direction);
+  do {
+    if (get_tile_value(board, tile) == EMPTY_TILE_VALUE)
+      continue;
+
+    int tile_value = get_tile_value(board, tile);
+
+    V2i target_tile = tile;
+    V2i next_tile = v2i_add(target_tile, direction);
+
+    while (is_tile_inbounds(next_tile) &&
+           (get_tile_value(board, next_tile) == EMPTY_TILE_VALUE ||
+            (get_tile_value(board, next_tile) == tile_value &&
+             !merge_map[next_tile.y][next_tile.x]))) {
+      target_tile = next_tile;
+      next_tile = v2i_add(next_tile, direction);
+      if (get_tile_value(board, target_tile) != EMPTY_TILE_VALUE) {
+        break;
+      }
+    }
+
+    int target_tile_value = get_tile_value(board, target_tile);
+    V2f tile_pos = get_tile_position(tile);
+    V2f target_tile_pos = get_tile_position(target_tile);
+
+    if (v2i_eq(tile, target_tile)) {
+      board->tiles[board->tiles_count++] = make_idle_tile(tile_value, tile_pos);
+    } else if (target_tile_value == tile_value) {
+      board->tiles[board->tiles_count++] = make_merge_tile(
+          target_tile_value, target_tile_value * 2, get_tile_position(tile),
+          get_tile_position(target_tile));
+      set_tile_value(board, tile, EMPTY_TILE_VALUE);
+      set_tile_value(board, target_tile, target_tile_value * 2);
+      merge_map[target_tile.y][target_tile.x] = true;
+    } else {
+      board->tiles[board->tiles_count++] = make_move_tile(
+          tile_value, get_tile_position(tile), get_tile_position(target_tile));
+      set_tile_value(board, tile, EMPTY_TILE_VALUE);
+      set_tile_value(board, target_tile, tile_value);
+    }
+  } while (get_next_tile(&tile, direction));
+}
+
+static Color get_tile_color(int number) {
   switch (number) {
   case 2:
     return (Color){57, 42, 26, 255};
@@ -46,366 +187,18 @@ static Color GetCellColor(int number) {
   };
 }
 
-static Rectangle GetCellRect(int row, int col) {
-  return (Rectangle){.height = CELL_HEIGHT,
-                     .width = CELL_WIDTH,
-                     .x = col * CELL_WIDTH + ((col + 1) * CELL_GAP_SIZE),
-                     .y = row * CELL_HEIGHT + ((row + 1) * CELL_GAP_SIZE)};
-}
-
-static Vector2 GetCellPosition(int row, int col) {
-  return (Vector2){.x = col * CELL_WIDTH + ((col + 1) * CELL_GAP_SIZE),
-                   .y = row * CELL_HEIGHT + ((row + 1) * CELL_GAP_SIZE)};
-}
-
-static bool IsCellEmpty(Cell cell) { return cell == 0; }
-
-// static Cell MakeEmptyCell() { return (Cell){.type = CELL_EMPTY, .number = 0};
-// }
-//
-// static Cell MakeCell(int number) {
-//   return (Cell){.type = CELL_FULL, .number = number};
-// }
-
-static void DrawEmptyBoard(void) {
-  for (int row = 0; row < BOARD_ROWS; row++) {
-    for (int col = 0; col < BOARD_COLS; col++) {
-      DrawRectangleRounded(GetCellRect(row, col), 0.05, 0,
-                           GetColor(0x392A1A55));
-    }
-  }
-}
-
-static void DrawCellScaled(Cell cell, Vector2 position, float scale) {
-  float height = CELL_HEIGHT * scale;
-  float width = CELL_WIDTH * scale;
+void draw_tile(Tile tile) {
+  float height = TILE_HEIGHT * tile.scale;
+  float width = TILE_WIDTH * tile.scale;
   Rectangle rect = {.height = height,
                     .width = width,
-                    .x = position.x - ((width - CELL_WIDTH) / 2),
-                    .y = position.y - ((height - CELL_HEIGHT) / 2)};
-  DrawRectangleRounded(rect, 0.05, 0, GetCellColor(cell));
+                    .x = tile.pos.x - ((width - TILE_WIDTH) / 2),
+                    .y = tile.pos.y - ((height - TILE_HEIGHT) / 2)};
+  DrawRectangleRounded(rect, 0.05, 0, get_tile_color(tile.number));
   char number_str[6];
-  sprintf(number_str, "%d", cell);
-  DrawText(number_str, position.x + (CELL_WIDTH / 2) - 12,
-           position.y + (CELL_HEIGHT / 2) - 22, 52, LIGHTGRAY);
-}
-
-static void DrawCell(Cell cell, Rectangle cell_rect) {
-  DrawCellScaled(cell, (Vector2){.x = cell_rect.x, .y = cell_rect.y}, 1);
-}
-
-static void DrawCells(Board *board) {
-  for (int row = 0; row < BOARD_ROWS; row++) {
-    for (int col = 0; col < BOARD_COLS; col++) {
-      Cell cell = board->cells[row][col];
-      if (!IsCellEmpty(cell)) {
-        Rectangle rect = GetCellRect(row, col);
-        DrawCell(cell, rect);
-      }
-    }
-  }
-}
-
-static void DrawAnimationCells(Board *board) {
-  if (board->animation.elapsed_time <= MOVE_ANIMATION_DURATION) {
-    for (size_t i = 0; i < board->animation.moves.count; i++) {
-      Move move = board->animation.moves.items[i];
-      Cell cell = move.number;
-      Rectangle rect =
-          (Rectangle){.height = CELL_HEIGHT,
-                      .width = CELL_WIDTH,
-                      .x = Lerp(move.from.x, move.to.x,
-                                SmoothStep(board->animation.elapsed_time /
-                                           MOVE_ANIMATION_DURATION)),
-                      .y = Lerp(move.from.y, move.to.y,
-                                SmoothStep(board->animation.elapsed_time /
-                                           MOVE_ANIMATION_DURATION))};
-      DrawCell(cell, rect);
-    }
-  } else {
-    float elapsed_time =
-        board->animation.elapsed_time - MOVE_ANIMATION_DURATION;
-    for (size_t i = 0; i < board->animation.moves.count; i++) {
-      Move move = board->animation.moves.items[i];
-      if (!move.is_merge) {
-        Rectangle rect = (Rectangle){
-            .height = CELL_HEIGHT,
-            .width = CELL_WIDTH,
-            .x = move.to.x,
-            .y = move.to.y,
-        };
-        Cell cell = move.number;
-        DrawCell(cell, rect);
-      }
-    }
-
-    for (size_t i = 0; i < board->animation.merges.count; i++) {
-      Merge merge = board->animation.merges.items[i];
-
-      if (elapsed_time < SCALE_UP_DURATION) {
-        float scale =
-            Lerp(1, 1.1, SmoothStep(elapsed_time / SCALE_UP_DURATION));
-        Cell cell = merge.number;
-        DrawCellScaled(cell, merge.in, scale);
-      } else {
-        float scale = Lerp(1.1, 1,
-                           SmoothStep((elapsed_time - SCALE_UP_DURATION) /
-                                      SCALE_DOWN_DURATION));
-        Cell cell = merge.number;
-        DrawCellScaled(cell, merge.in, scale);
-      }
-    }
-
-    for (size_t i = 0; i < board->animation.appears.count; i++) {
-      Appear appear = board->animation.appears.items[i];
-      float scale =
-          Lerp(0, 1, SmoothStep(elapsed_time / APPEAR_ANIMATION_DURATION));
-      Cell cell = appear.number;
-      DrawCellScaled(cell, appear.in, scale);
-    }
-  }
-}
-
-void DrawBoard(Board *board) {
-  DrawEmptyBoard();
-  if (IsAnimationPlaying(&board->animation)) {
-    DrawAnimationCells(board);
-  } else {
-    DrawCells(board);
-  }
-}
-
-void InitBoard(Board *board) {
-  memset(board, 0, sizeof(*board));
-  Cell cell1 = 2;
-  Cell cell2 = 2;
-  board->cells[1][1] = cell1;
-  board->cells[3][2] = cell2;
-}
-
-void AddRandomCell(Board *board) {
-  Point empty_cells[BOARD_COLS * BOARD_ROWS];
-  size_t empty_cells_count = 0;
-
-  for (int row = 0; row < BOARD_ROWS; row++) {
-    for (int col = 0; col < BOARD_COLS; col++) {
-      Cell cell = board->cells[row][col];
-      if (IsCellEmpty(cell)) {
-        empty_cells[empty_cells_count] = (Point){.x = col, .y = row};
-        empty_cells_count++;
-      }
-    }
-  }
-  if (empty_cells_count == 0) {
-    return;
-  }
-  int r = rand() % empty_cells_count;
-  Point choosen = empty_cells[r];
-  board->cells[choosen.y][choosen.x] = 2;
-  Vector2 pos = GetCellPosition(choosen.y, choosen.x);
-  AddAppearAnimation(&board->animation, 2, pos);
-}
-
-static bool AnyMoveHappen(Board *board) {
-  for (size_t i = 0; i < board->animation.moves.count; i++) {
-    Move move = board->animation.moves.items[i];
-    if (move.from.x != move.to.x || move.from.y != move.to.y)
-      return true;
-  }
-  return false;
-}
-
-void UpdateBoard(Board *board) {
-  if (IsKeyPressed(KEY_A)) {
-    ClearAnimations(&board->animation);
-    MoveLeft(board);
-    if (AnyMoveHappen(board)) {
-      board->animation.is_animation_playing = true;
-      AddRandomCell(board);
-    }
-  }
-  if (IsKeyPressed(KEY_D)) {
-    ClearAnimations(&board->animation);
-    MoveRight(board);
-    if (AnyMoveHappen(board)) {
-      board->animation.is_animation_playing = true;
-      AddRandomCell(board);
-    }
-  }
-  if (IsKeyPressed(KEY_W)) {
-    ClearAnimations(&board->animation);
-    MoveUp(board);
-    if (AnyMoveHappen(board)) {
-      board->animation.is_animation_playing = true;
-      AddRandomCell(board);
-    }
-  }
-  if (IsKeyPressed(KEY_S)) {
-    ClearAnimations(&board->animation);
-    MoveDown(board);
-    if (AnyMoveHappen(board)) {
-      board->animation.is_animation_playing = true;
-      AddRandomCell(board);
-    }
-  }
-
-  if (IsAnimationPlaying(&board->animation)) {
-    UpdateAnimation(&board->animation);
-  }
-}
-
-static int CalculateTargetColLeft(Board *board, Cell cell, int row, int col,
-                                  bool merge_map[BOARD_ROWS][BOARD_COLS]) {
-  int target_col = col;
-  for (; target_col > 0; target_col--)
-    if (!IsCellEmpty(board->cells[row][target_col - 1]))
-      break;
-
-  if (target_col > 0 && board->cells[row][target_col - 1] == cell &&
-      !merge_map[row][target_col - 1]) {
-    target_col--;
-  }
-  return target_col;
-}
-
-static int CalculateTargetColRight(Board *board, Cell cell, int row, int col,
-                                   bool merge_map[BOARD_ROWS][BOARD_COLS]) {
-  int target_col = col;
-  for (; target_col < BOARD_COLS - 1; target_col++)
-    if (!IsCellEmpty(board->cells[row][target_col + 1]))
-      break;
-
-  if (target_col < BOARD_COLS - 1 &&
-      board->cells[row][target_col + 1] == cell &&
-      !merge_map[row][target_col + 1])
-    target_col++;
-  return target_col;
-}
-
-static int CalculateTargetRowUp(Board *board, Cell cell, int row, int col,
-                                bool merge_map[BOARD_ROWS][BOARD_COLS]) {
-  int target_row = row;
-  for (; target_row > 0; target_row--)
-    if (!IsCellEmpty(board->cells[target_row - 1][col]))
-      break;
-
-  if (target_row > 0 && board->cells[target_row - 1][col] == cell &&
-      !merge_map[target_row - 1][col])
-    target_row--;
-  return target_row;
-}
-
-static int CalculateTargetRowDown(Board *board, Cell cell, int row, int col,
-                                  bool merge_map[BOARD_ROWS][BOARD_COLS]) {
-  int target_row = row;
-  for (; target_row < BOARD_ROWS - 1; target_row++)
-    if (!IsCellEmpty(board->cells[target_row + 1][col]))
-      break;
-
-  if (target_row < BOARD_COLS - 1 &&
-      board->cells[target_row + 1][col] == cell &&
-      !merge_map[target_row + 1][col])
-    target_row++;
-  return target_row;
-}
-
-static void MoveLeft(Board *board) {
-  bool merge_map[BOARD_ROWS][BOARD_COLS] = {0};
-
-  for (int row = 0; row < BOARD_ROWS; row++) {
-    for (int col = 0; col < BOARD_COLS; col++) {
-      Cell cell = board->cells[row][col];
-      if (IsCellEmpty(cell))
-        continue;
-
-      int target_col = CalculateTargetColLeft(board, cell, row, col, merge_map);
-      bool is_merge =
-          col != target_col && !IsCellEmpty(board->cells[row][target_col]);
-      Vector2 from_pos = GetCellPosition(row, col);
-      Vector2 to_pos = GetCellPosition(row, target_col);
-      AddMoveAnimation(&board->animation, cell, is_merge, from_pos, to_pos);
-      if (is_merge) {
-        AddMergeAnimation(&board->animation, cell * 2, to_pos);
-        merge_map[row][target_col] = true;
-      }
-      board->cells[row][col] = EMPTY_CELL;
-      board->cells[row][target_col] = is_merge ? cell * 2 : cell;
-    }
-  }
-}
-
-static void MoveRight(Board *board) {
-  bool merge_map[BOARD_ROWS][BOARD_COLS] = {0};
-
-  for (int row = 0; row < BOARD_ROWS; row++) {
-    for (int col = BOARD_COLS - 1; col >= 0; col--) {
-      Cell cell = board->cells[row][col];
-      if (IsCellEmpty(cell))
-        continue;
-
-      int target_col =
-          CalculateTargetColRight(board, cell, row, col, merge_map);
-      bool is_merge =
-          col != target_col && !IsCellEmpty(board->cells[row][target_col]);
-      Vector2 from_pos = GetCellPosition(row, col);
-      Vector2 to_pos = GetCellPosition(row, target_col);
-      AddMoveAnimation(&board->animation, cell, is_merge, from_pos, to_pos);
-      if (is_merge) {
-        AddMergeAnimation(&board->animation, cell * 2, to_pos);
-        merge_map[row][target_col] = true;
-      }
-      board->cells[row][col] = EMPTY_CELL;
-      board->cells[row][target_col] = is_merge ? cell * 2 : cell;
-    }
-  }
-}
-
-static void MoveUp(Board *board) {
-  bool merge_map[BOARD_ROWS][BOARD_COLS] = {0};
-
-  for (int row = 0; row < BOARD_ROWS; row++) {
-    for (int col = 0; col < BOARD_COLS; col++) {
-      Cell cell = board->cells[row][col];
-      if (IsCellEmpty(cell))
-        continue;
-
-      int target_row = CalculateTargetRowUp(board, cell, row, col, merge_map);
-      bool is_merge =
-          row != target_row && !IsCellEmpty(board->cells[target_row][col]);
-      Vector2 from_pos = GetCellPosition(row, col);
-      Vector2 to_pos = GetCellPosition(target_row, col);
-      AddMoveAnimation(&board->animation, cell, is_merge, from_pos, to_pos);
-      if (is_merge) {
-        AddMergeAnimation(&board->animation, cell * 2, to_pos);
-        merge_map[target_row][col] = true;
-      }
-      board->cells[row][col] = EMPTY_CELL;
-      board->cells[target_row][col] = is_merge ? cell * 2 : cell;
-    }
-  }
-}
-
-static void MoveDown(Board *board) {
-  bool merge_map[BOARD_ROWS][BOARD_COLS] = {0};
-
-  for (int row = BOARD_ROWS - 1; row >= 0; row--) {
-    for (int col = 0; col < BOARD_COLS; col++) {
-      Cell cell = board->cells[row][col];
-      if (IsCellEmpty(cell))
-        continue;
-
-      int target_row = CalculateTargetRowDown(board, cell, row, col, merge_map);
-      bool is_merge =
-          row != target_row && !IsCellEmpty(board->cells[target_row][col]);
-      Vector2 from_pos = GetCellPosition(row, col);
-      Vector2 to_pos = GetCellPosition(target_row, col);
-      AddMoveAnimation(&board->animation, cell, is_merge, from_pos, to_pos);
-      if (is_merge) {
-        AddMergeAnimation(&board->animation, cell * 2, to_pos);
-        merge_map[target_row][col] = true;
-      }
-      board->cells[row][col] = EMPTY_CELL;
-      board->cells[target_row][col] = is_merge ? cell * 2 : cell;
-    }
-  }
+  sprintf(number_str, "%d", tile.number);
+  int font_size = floorf(Lerp(0, 52, tile.scale));
+  int half_text_size = MeasureText(number_str, font_size) / 2;
+  DrawText(number_str, tile.pos.x + (TILE_WIDTH / 2) - half_text_size,
+           tile.pos.y + (TILE_HEIGHT / 2) - 22, font_size, LIGHTGRAY);
 }

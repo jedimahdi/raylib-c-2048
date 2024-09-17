@@ -1,0 +1,7 @@
+BasedOnStyle: LLVM
+TabWidth: 2
+IndentWidth: 2
+UseTab: Never
+ColumnLimit: 0
+AlignArrayOfStructures: Left
+IndentCaseLabels: false

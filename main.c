@@ -1,31 +1,13 @@
 #include "board.h"
-#include <raylib.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <time.h>
-
-#define WINDOW_WIDTH 800.0
-#define WINDOW_HEIGHT 800.0
-#define BACKGROUND_COLOR GetColor(0x574A3EFF)
+#include "linear.h"
+#include <stdio.h>
 
 int main(void) {
-  srand(time(NULL));
+  V2i direction = DIRECTION_DOWN;
+  V2i tile = get_starting_tile(direction);
+  do {
+    printf("v2i(%d, %d)\n", tile.x, tile.y);
+  } while (get_next_tile(&tile, direction));
 
-  InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "2048 Game");
-  SetTargetFPS(60);
-
-  Board board;
-  InitBoard(&board);
-
-  while (!WindowShouldClose()) {
-    UpdateBoard(&board);
-
-    BeginDrawing();
-    ClearBackground(BACKGROUND_COLOR);
-    DrawBoard(&board);
-    EndDrawing();
-  }
-
-  CloseWindow();
   return 0;
 }
